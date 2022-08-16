@@ -231,8 +231,10 @@ def evaluate_arima_model(df, trainData):
 
             return MSE, MAPE
     except:
-        st.write("Oops!", sys.exc_info()[0], "occurred.")
-        return(st.write('Please Select other ARIMA values as this is not possible.'))
+        # st.write("Oops!", sys.exc_info()[0], "occurred.")
+        st.error('Please select other ARIMA values as this is not possible.')
+        st.stop()
+        return()
 
 
 # run models
@@ -267,8 +269,8 @@ if runModels:
     # ACCURACY METRICS
     accTable = pd.DataFrame()
     accTable['ARIMA-MAPE'] = [arimaMAPE]
-    accTable['ARIMA-MSE'] = [arimaMSE]
     accTable['LSTM-MAPE'] = [lstmMape]
+    accTable['ARIMA-MSE'] = [arimaMSE]
     accTable['LSTM-MSE'] = [lstmMse]
 
     # accuracy metrics
