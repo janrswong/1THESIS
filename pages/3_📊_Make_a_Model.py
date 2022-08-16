@@ -5,6 +5,8 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.express as px
+# import hydralit_components as hc
+from time import sleep
 from statsmodels.tsa.arima_model import ARIMA
 from sklearn.metrics import mean_absolute_percentage_error, mean_squared_error, mean_absolute_error
 import tensorflow as tf
@@ -18,15 +20,22 @@ from tensorflow.keras.callbacks import ModelCheckpoint
 # import module sys to get the type of exception
 import sys
 from st_aggrid import GridOptionsBuilder, AgGrid
+# progress bars
+from tqdm.notebook import tqdm
+
+# from threading import Thread
 
 # page expands to full width
 st.set_page_config(page_title="Make a Model", layout='wide', page_icon="📊")
 
 # ag grid pagination
+
+
 def pagination(df):
-        gb = GridOptionsBuilder.from_dataframe(df)
-        gb.configure_pagination(paginationAutoPageSize=True)
-        return gb.build()
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_pagination(paginationAutoPageSize=True)
+    return gb.build()
+
 
 # PAGE LAYOUT
 # heading
@@ -53,12 +62,13 @@ with st.sidebar.header('Set Data Split'):
     qValue = st.sidebar.number_input('Q-value:', 0, 100, qValue)
     st.sidebar.write('The current q-Value is ', qValue)
     details = st.sidebar.checkbox('Show Details')
-    runModels =st.sidebar.button('Test Models')
+    runModels = st.sidebar.button('Test Models')
 
 
 # select time interval
 interv = st.select_slider('Select Time Series Data Interval for Prediction', options=[
                           'Weekly', 'Monthly', 'Quarterly', 'Daily'])
+
 
 @st.cache
 def getInterval(argument):
@@ -69,6 +79,7 @@ def getInterval(argument):
         "D": "1d"
     }
     return switcher.get(argument, "1d")
+
 
 df = yf.download('BZ=F', interval=getInterval(interv[0]))
 st.table(df.head())
@@ -97,7 +108,11 @@ st.header("Visualizations")
 
 # LSTM
 
+
 def df_to_X_y(df, window_size=5):
+    # loader_delay = 5
+    # with hc.HyLoader('LSTM preprocess loading', hc.Loaders.standard_loaders, index=[0]):
+    # time.sleep(loader_delay)
     df_as_np = df.to_numpy()
     X = []
     y = []
@@ -120,6 +135,12 @@ def mape_eval(test, predictions):
 # @st.cache
 # @st.cache(allow_output_mutation=True)
 def evaluate_lstm_model(split):
+    # my_bar = st.progress(0)
+    # estimators = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    # loader_delay = 5
+    # with hc.HyLoader('LSTM Model loading', hc.Loaders.standard_loaders, index=[0]):
+    #     time.sleep(loader_delay)
+    
     global lstmModel
     WINDOW_SIZE = 3
     X1, y1 = df_to_X_y(df['Close'], WINDOW_SIZE)
@@ -129,36 +150,40 @@ def evaluate_lstm_model(split):
         df.shape[0]*split)], df.index[int(df.shape[0]*split)+WINDOW_SIZE:]
     X_train1, y_train1 = X1[:int(df.shape[0]*split)
                             ], y1[:int(df.shape[0]*split)]
-    X_test1, y_test1 = X1[int(df.shape[0]*split):], y1[int(df.shape[0]*split):]
+    X_test1, y_test1 = X1[int(df.shape[0]*split)
+                                :], y1[int(df.shape[0]*split):]
     # X_train1.shape, y_train1.shape, X_test1.shape, y_test1.shape
 
-    # lstm model
-    model = Sequential([layers.Input((3, 1)), layers.LSTM(64), layers.Dense(
-        32, activation='relu'), layers.Dense(32, activation='relu'), layers.Dense(1)])
-    cp1 = ModelCheckpoint('model1/', save_best_only=True)
-    model.compile(loss='mse', optimizer=Adam(learning_rate=0.001),
-                  metrics=['mean_absolute_percentage_error'])
-    model.fit(X_train1, y_train1, epochs=100)
-    lstmModel = model.summary()
-    # train predictions
-    train_predictions = model.predict(X_train1).flatten()
-    train_results = pd.DataFrame(
-        data={'Date': date_train, 'Close Prices': y_train1, 'Train Predictions': train_predictions})
-    # train_results
+        # lstm model
+    with st.spinner('LSTM Model...'):
+        model = Sequential([layers.Input((3, 1)), layers.LSTM(64), layers.Dense(
+            32, activation='relu'), layers.Dense(32, activation='relu'), layers.Dense(1)])
+        cp1 = ModelCheckpoint('model1/', save_best_only=True)
+        model.compile(loss='mse', optimizer=Adam(learning_rate=0.001),
+                      metrics=['mean_absolute_percentage_error'])
+        model.fit(X_train1, y_train1, epochs=100)
 
-    # test predictions
-    test_predictions = model.predict(X_test1).flatten()
-    test_results = pd.DataFrame(
-        data={'Date': date_test, 'Close Prices': y_test1, 'LSTM Predictions': test_predictions})
-    # test_results
+        lstmModel = model.summary()
+        # train predictions
+        train_predictions = model.predict(X_train1).flatten()
+        train_results = pd.DataFrame(
+            data={'Date': date_train, 'Close Prices': y_train1, 'Train Predictions': train_predictions})
+        # train_results
 
-    # evaluate model
-    mse = mse_eval(test_results['Close Prices'],
-                   test_results['LSTM Predictions'])
-    mape = mape_eval(test_results['Close Prices'],
-                     test_results['LSTM Predictions'])
-    print(mse)
-    print(mape)
+        # test predictions
+        test_predictions = model.predict(X_test1).flatten()
+        test_results = pd.DataFrame(
+            data={'Date': date_test, 'Close Prices': y_test1, 'LSTM Predictions': test_predictions})
+        # test_results
+
+        # evaluate model
+        mse = mse_eval(test_results['Close Prices'],
+                       test_results['LSTM Predictions'])
+        mape = mape_eval(test_results['Close Prices'],
+                         test_results['LSTM Predictions'])
+        print(mse)
+        print(mape)
+        # my_bar.progress(i + 1)
 
     return test_results, mse, mape
 
@@ -171,47 +196,56 @@ global results
 
 # @st.experimental_memo
 def evaluate_arima_model(df, trainData):
+    # loader_delay = 5
+    # with hc.HyLoader('Arima Model loading', hc.Loaders.standard_loaders, index=[0]):
+    #     time.sleep(loader_delay)
+
     global arimamodsum
     try:
-        row = int(len(df)*(trainData*.01))  # 80% testing
-        trainingData = list(df[0:row]['Close'])
-        testingData = list(df[row:]['Close'])
-        predictions = []
-        nObservations = len(testingData)
+        with st.spinner('ARIMA Model...'):
+            row = int(len(df)*(trainData*.01))  # 80% testing
+            trainingData = list(df[0:row]['Close'])
+            testingData = list(df[row:]['Close'])
+            predictions = []
+            nObservations = len(testingData)
 
-        for i in range(nObservations):
-            model = ARIMA(trainingData, order=(pValue, dValue, qValue))  # p,d,q
-            model_fit = model.fit()
-            output = model_fit.forecast()
-            yhat = list(output[0])[0]
-            predictions.append(yhat)
-            actualTestValue = testingData[i]
-            trainingData.append(actualTestValue)
+            for i in range(nObservations):
+                model = ARIMA(trainingData, order=(
+                    pValue, dValue, qValue))  # p,d,q
+                model_fit = model.fit()
+                output = model_fit.forecast()
+                yhat = list(output[0])[0]
+                predictions.append(yhat)
+                actualTestValue = testingData[i]
+                trainingData.append(actualTestValue)
 
-        arimamodsum = model_fit.summary()
+            arimamodsum = model_fit.summary()
 
-        # st.write(predictions)
-        testingSet = pd.DataFrame(testingData)
-        testingSet['ARIMApredictions'] = predictions
-        testingSet.columns = ['Close Prices', 'ARIMA Predictions']
-        results["ARIMA Predictions"] = testingSet["ARIMA Predictions"]
-        MSE = mean_squared_error(testingData, predictions)
-        MAPE = mean_absolute_percentage_error(testingData, predictions)
+            # st.write(predictions)
+            testingSet = pd.DataFrame(testingData)
+            testingSet['ARIMApredictions'] = predictions
+            testingSet.columns = ['Close Prices', 'ARIMA Predictions']
+            results["ARIMA Predictions"] = testingSet["ARIMA Predictions"]
+            MSE = mean_squared_error(testingData, predictions)
+            MAPE = mean_absolute_percentage_error(testingData, predictions)
 
-        return MSE, MAPE
+            return MSE, MAPE
     except:
         st.write("Oops!", sys.exc_info()[0], "occurred.")
         return(st.write('Please Select other ARIMA values as this is not possible.'))
 
+
 # run models
 # plot all results
 if runModels:
+    # results, lstmMse, lstmMape = Thread(target=evaluate_lstm_model(trainData*.01))
+    # arimaMSE, arimaMAPE = Thread(target=evaluate_arima_model(df, trainData))
     results, lstmMse, lstmMape = evaluate_lstm_model(trainData*.01)
     arimaMSE, arimaMAPE = evaluate_arima_model(df, trainData)
 
     # plot orig price and predicted price
     fig = px.line(results, x=results["Date"], y=["Close Prices", "ARIMA Predictions", "LSTM Predictions"],
-                title="BOTH PREDICTED BRENT CRUDE OIL PRICES", width=1000)
+                  title="BOTH PREDICTED BRENT CRUDE OIL PRICES", width=1000)
     st.plotly_chart(fig, use_container_width=True)
 
     # print(arimamodsum)
@@ -224,12 +258,11 @@ if runModels:
         st.session_state.details_state = True
         page = pagination(results)
         AgGrid(results, key='dailyCombined', fit_columns_on_grid_load=True,
-            enable_enterprise_modules=True, theme='streamlit', gridOptions=page)
+               enable_enterprise_modules=True, theme='streamlit', gridOptions=page)
         # st.table(results)
         st.write(arimamodsum)
         # st.write(details)
         # st.write(lstmModel)
-
 
     # ACCURACY METRICS
     accTable = pd.DataFrame()
